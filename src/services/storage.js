@@ -1,4 +1,4 @@
-// src/services/storage.js - NEW FILE
+// src/services/storage.js - CREATE THIS NEW FILE
 import { 
     collection, 
     doc, 
@@ -7,8 +7,7 @@ import {
     setDoc, 
     deleteDoc, 
     query, 
-    where,
-    orderBy 
+    where 
   } from 'firebase/firestore';
   import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
   import { auth, db, storage } from '../firebase';

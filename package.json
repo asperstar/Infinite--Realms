@@ -5,6 +5,7 @@
   "private": true,
   "homepage": "https://worldbuilding-app-plum.vercel.app/",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.3",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",

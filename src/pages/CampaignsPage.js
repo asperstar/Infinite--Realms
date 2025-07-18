@@ -1,15 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// src/pages/CampaignsPage.js - REPLACE your current CampaignsPage.js with this
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { loadWorlds, saveWorlds, loadWorldCampaigns, saveCampaign, deleteCampaign } from '../utils/storageExports';
-import { createCampaignModel, createSceneModel } from '../models/CampaignModel';
-import { loadCharacters } from '../utils/storageExports';
+import { createCampaignModel } from '../models/CampaignModel';
 import { useStorage } from '../contexts/StorageContext';
-import debounce from 'lodash/debounce';
 
 function CampaignsPage() {
   const { worldId } = useParams();
-  const { currentUser } = useStorage();
-  const [worlds, setWorlds] = useState([]);
+  const { currentUser, getWorlds, getWorldById, getWorldCampaigns, updateCampaign, deleteCampaignById, getAllCharacters } = useStorage();
   const [world, setWorld] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [characters, setCharacters] = useState([]);
@@ -22,52 +19,32 @@ function CampaignsPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
   const [selectedCharacters, setSelectedCharacters] = useState([]);
   const [error, setError] = useState(null);
-  const [draftCampaign, setDraftCampaign] = useState(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [loading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  
-  // Create a ref for the debounced save function to prevent recreating it on each render
-  const debouncedSaveCampaignRef = useRef(
-    debounce(async (campaignData, userId) => {
-      try {
-        console.log("Saving campaign with debounce:", campaignData.name);
-        await saveCampaign(campaignData, userId);
-        return true;
-      } catch (error) {
-        console.error("Error in debounced save:", error);
-        return false;
-      }
-    }, 300)
-  );
 
   // Load data on mount
   useEffect(() => {
     const loadData = async () => {
+      if (!currentUser) return;
+      
       try {
         setIsLoading(true);
         setError(null);
-  
-        // Load worlds
-        console.log("Loading worlds...");
-        const loadedWorlds = await loadWorlds(currentUser?.uid);
-        setWorlds(loadedWorlds || []);
-        
-        const parsedWorldId = parseInt(worldId);
-        const foundWorld = loadedWorlds.find(w => w.id === parsedWorldId);
+
+        // Load world
+        const foundWorld = await getWorldById(worldId);
         setWorld(foundWorld);
-  
-        // Load campaigns
+
+        // Load campaigns for this world
         if (foundWorld) {
-          console.log(`Loading campaigns for world ${foundWorld.id}...`);
-          const worldCampaigns = await loadWorldCampaigns(foundWorld.id, currentUser?.uid);
+          const worldCampaigns = await getWorldCampaigns(worldId);
           setCampaigns(worldCampaigns || []);
         }
-  
+
         // Load characters
-        const loadedCharacters = await loadCharacters(currentUser?.uid);
+        const loadedCharacters = await getAllCharacters();
         setCharacters(loadedCharacters || []);
-  
+
         setIsLoading(false);
       } catch (error) {
         console.error('Error loading data:', error);
@@ -75,64 +52,17 @@ function CampaignsPage() {
         setIsLoading(false);
       }
     };
-  
-    if (currentUser) {
-      loadData();
-    }
-  }, [worldId, currentUser, loadWorlds, loadWorldCampaigns, loadCharacters]);
 
-  // Auto-save logic using the ref to prevent recreation
-  const autoSave = useCallback((campaignData) => {
-    if (!currentUser || !campaignData.name || !debouncedSaveCampaignRef.current) return;
-    
-    try {
-      console.log("Auto-saving campaign:", campaignData.name);
-      const campaignToSave = {
-        ...campaignData,
-        userId: currentUser.uid,
-        isDraft: true,
-        worldId: parseInt(worldId),
-        updated: new Date().toISOString(),
-        created: draftCampaign ? draftCampaign.created : new Date().toISOString(),
-      };
-      
-      if (!draftCampaign) {
-        const newCampaignObj = createCampaignModel(parseInt(worldId), campaignToSave);
-        debouncedSaveCampaignRef.current(newCampaignObj, currentUser.uid);
-        setDraftCampaign(newCampaignObj);
-      } else {
-        const updatedCampaign = { ...draftCampaign, ...campaignToSave };
-        debouncedSaveCampaignRef.current(updatedCampaign, currentUser.uid);
-        setDraftCampaign(updatedCampaign);
-      }
-    } catch (error) {
-      console.error('Error auto-saving campaign:', error);
-      setError('Failed to auto-save campaign.');
-    }
-  }, [currentUser, draftCampaign, worldId]);
+    loadData();
+  }, [worldId, currentUser, getWorldById, getWorldCampaigns, getAllCharacters]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setNewCampaign(prev => {
-      const updated = { ...prev, [name]: value };
-      setHasUnsavedChanges(true);
-      autoSave(updated);
-      return updated;
-    });
+    setNewCampaign(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
-  
-  // Prompt user before navigating away
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
 
   const openCharacterSelection = (campaignId) => {
     const campaign = campaigns.find(c => c.id === campaignId);
@@ -165,7 +95,7 @@ function CampaignsPage() {
 
       try {
         setIsSaving(true);
-        await saveCampaign(updatedCampaign, currentUser);
+        await updateCampaign(updatedCampaign);
         setCampaigns(campaigns.map(c =>
           c.id === selectedCampaignId ? updatedCampaign : c
         ));
@@ -187,23 +117,8 @@ function CampaignsPage() {
     
     try {
       setIsLoading(true);
-      console.log(`Deleting campaign ${campaignId}...`);
-      await deleteCampaign(campaignId);
+      await deleteCampaignById(campaignId);
       setCampaigns(prevCampaigns => prevCampaigns.filter(c => c.id !== campaignId));
-
-      if (world) {
-        const updatedWorld = {
-          ...world,
-          campaignIds: (world.campaignIds || []).filter(id => id !== campaignId)
-        };
-
-        const worlds = await loadWorlds(currentUser?.uid);
-        const updatedWorlds = worlds.map(w =>
-          w.id === updatedWorld.id ? updatedWorld : w
-        );
-        await saveWorlds(updatedWorlds, currentUser);
-        setWorld(updatedWorld);
-      }
     } catch (error) {
       console.error('Error deleting campaign:', error);
       setError('Failed to delete campaign. Please try again.');
@@ -212,79 +127,56 @@ function CampaignsPage() {
     }
   };
 
- // Fixed createCampaign function in CampaignsPage.js
-const createCampaign = async () => {
-  if (isSaving) return;
-  setIsSaving(true);
-  setError(null);
-  
-  try {
-    console.log("Creating campaign...");
-    const parsedWorldId = parseInt(worldId);
+  const createCampaign = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    
+    try {
+      const parsedWorldId = parseInt(worldId);
 
-    const campaignData = isCreating ?
-      {
-        name: newCampaign.name || `New Campaign in ${world?.name || 'World'}`,
-        description: newCampaign.description || ''
-      } :
-      {
-        name: `New Campaign in ${world?.name || 'World'}`
-      };
+      const campaignData = isCreating ?
+        {
+          name: newCampaign.name || `New Campaign in ${world?.name || 'World'}`,
+          description: newCampaign.description || ''
+        } :
+        {
+          name: `New Campaign in ${world?.name || 'World'}`
+        };
 
-    let campaignToSave;
-    if (draftCampaign) {
-      campaignToSave = {
-        id: draftCampaign.id,
-        name: campaignData.name,
-        description: campaignData.description,
-        participantIds: draftCampaign.participantIds || [],
-        scenes: draftCampaign.scenes || [],
-        worldId: parsedWorldId,
-        isDraft: false,
-        created: draftCampaign.created,
-        updated: new Date().toISOString(),
-      };
-    } else {
-      campaignToSave = createCampaignModel(parsedWorldId, {
-        ...campaignData,
-        worldId: parsedWorldId,
-        created: new Date().toISOString(),
-        updated: new Date().toISOString(),
-      });
+      const campaignToSave = createCampaignModel(parsedWorldId, campaignData);
+
+      await updateCampaign(campaignToSave);
+      setCampaigns([...campaigns, campaignToSave]);
+      setNewCampaign({ name: '', description: '' });
+      setIsCreating(false);
+      setIsSaving(false);
+    } catch (error) {
+      console.error('Error creating campaign:', error);
+      setError(`Failed to create campaign: ${error.message}`);
+      setIsSaving(false);
     }
+  };
 
-    // CRITICAL: Only pass the user ID string, not the entire user object
-    console.log("Saving campaign:", campaignToSave);
-    await saveCampaign(campaignToSave, currentUser?.uid); // Pass only the uid
-    console.log("Campaign saved successfully");
-
-    // Update world with new campaign
-    if (world) {
-      const updatedWorld = {
-        ...world,
-        campaignIds: [...(world.campaignIds || []), campaignToSave.id]
-      };
-
-      const worlds = await loadWorlds(currentUser?.uid);
-      const updatedWorlds = worlds.map(w =>
-        w.id === updatedWorld.id ? updatedWorld : w
-      );
-      await saveWorlds(updatedWorlds, currentUser?.uid); // Pass only the uid
-      setWorld(updatedWorld);
-    }
-
-    setCampaigns([...campaigns, campaignToSave]);
-    setNewCampaign({ name: '', description: '' });
-    setDraftCampaign(null);
-    setIsCreating(false);
-    setHasUnsavedChanges(false);
-    setIsSaving(false);
-  } catch (error) {
-    console.error('Error creating campaign:', error);
-    setError(`Failed to create campaign: ${error.message}`);
-    setIsSaving(false);
+  if (!currentUser) {
+    return (
+      <div className="campaigns-page">
+        <h1>Campaigns</h1>
+        <div className="error-message">
+          <p>Please log in to access campaigns.</p>
+        </div>
+      </div>
+    );
   }
-};
+
+  if (loading) {
+    return (
+      <div className="campaigns-page">
+        <h1>Campaigns in {world?.name || 'World'}</h1>
+        <div className="loading">Loading campaigns...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="campaigns-page">
@@ -330,8 +222,6 @@ const createCampaign = async () => {
                   onClick={() => {
                     setIsCreating(false);
                     setNewCampaign({ name: '', description: '' });
-                    setDraftCampaign(null);
-                    setHasUnsavedChanges(false);
                   }}
                   disabled={isSaving}
                 >
@@ -351,11 +241,7 @@ const createCampaign = async () => {
         </div>
         <div className="campaigns-list">
           <h2>Available Campaigns</h2>
-          {loading ? (
-            <div className="loading-world">
-              <p>Loading campaigns...</p>
-            </div>
-          ) : !world ? (
+          {!world ? (
             <div className="loading-world">
               <p>Loading world data...</p>
             </div>
@@ -425,40 +311,35 @@ const createCampaign = async () => {
                 <p>No characters available. Go create some characters first!</p>
               ) : (
                 <ul>
-                 {characters.map(character => (
-  <li key={character.id} className="character-selection-item">
-    <label className="character-checkbox">
-      <input
-        type="checkbox"
-        checked={selectedCharacters.includes(character.id)}
-        onChange={() => toggleCharacterSelection(character.id)}
-        disabled={isSaving}
-      />
-      <div className="character-chat-header">
-        <h2>{character.name}</h2>
-        {character.worldId && (
-          <div className="world-badge">
-            From {worlds.find(w => w.id === character.worldId)?.name || 'Unknown World'}
-          </div>
-        )}
-      </div>
-      <div className="character-info">
-        {character.imageUrl ? (
-          <img
-            src={character.imageUrl}
-            alt={character.name}
-            className="character-thumbnail"
-          />
-        ) : (
-          <div className="character-initial">
-            {character.name ? character.name[0].toUpperCase() : '?'}
-          </div>
-        )}
-        <span>{character.name}</span>
-      </div>
-    </label>
-  </li>
-))}
+                  {characters.map(character => (
+                    <li key={character.id} className="character-selection-item">
+                      <label className="character-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedCharacters.includes(character.id)}
+                          onChange={() => toggleCharacterSelection(character.id)}
+                          disabled={isSaving}
+                        />
+                        <div className="character-chat-header">
+                          <h2>{character.name}</h2>
+                        </div>
+                        <div className="character-info">
+                          {character.imageUrl ? (
+                            <img
+                              src={character.imageUrl}
+                              alt={character.name}
+                              className="character-thumbnail"
+                            />
+                          ) : (
+                            <div className="character-initial">
+                              {character.name ? character.name[0].toUpperCase() : '?'}
+                            </div>
+                          )}
+                          <span>{character.name}</span>
+                        </div>
+                      </label>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>

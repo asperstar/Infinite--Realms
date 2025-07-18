@@ -1,156 +1,65 @@
-// src/pages/CharactersPage.js
+// src/pages/CharactersPage.js - REPLACE your current CharactersPage.js with this
 import React, { useState, useEffect, useCallback } from 'react';
 import CharacterForm from '../components/characters/CharacterForm';
-import { saveCharacter, deleteCharacter, testStorage } from '../utils/storageExports';
-import { Link } from 'react-router-dom';
-import { trace } from 'firebase/performance';
-import { perf } from '../firebase';
+import { Link, useNavigate } from 'react-router-dom';
 import { useStorage } from '../contexts/StorageContext';
-import debounce from 'lodash/debounce';
-import { useNavigate } from 'react-router-dom';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../firebase';
-
-// Create debounced save function
-const debouncedSaveCharacter = debounce(async (characterData, userId) => {
-  try {
-    await saveCharacter(characterData, userId);
-    return true;
-  } catch (error) {
-    console.error("Error in debounced save:", error);
-    return false;
-  }
-}, 300); // 300ms debounce
 
 function CharactersPage() {
   const navigate = useNavigate();
-  const { currentUser, getAllCharacters, testStorage, saveOneCharacter } = useStorage();
+  const { currentUser, getAllCharacters, saveOneCharacter, deleteOneCharacter, testStorageConnection } = useStorage();
   const [characters, setCharacters] = useState([]);
   const [editingCharacter, setEditingCharacter] = useState(null);
-  const [storageStatus, setStorageStatus] = useState({ tested: false, working: false });
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredCharacters, setFilteredCharacters] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saveError, setSaveError] = useState(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const pageSize = 10;
-  const [draftCharacter, setDraftCharacter] = useState(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    traits: '',
-    personality: '',
-    background: '',
-    imageUrl: ''
-  });
 
   useEffect(() => {
     const checkStorage = async () => {
       try {
-        const test = await testStorage();
-        setStorageStatus({ tested: true, working: test.success });
+        const test = await testStorageConnection();
         if (!test.success) {
           if (test.error.includes('not authenticated')) {
             setError('User not authenticated. Please log in to save characters.');
-          } else if (test.errorCode === 'unavailable') {
-            setError('Network error: Unable to connect to Firestore. Please check your internet connection.');
           } else {
-            setError(`Unable to connect to Firestore: ${test.error}`);
+            setError(`Unable to connect to storage: ${test.error}`);
           }
         } else {
           setError(null);
         }
       } catch (err) {
-        setStorageStatus({ tested: true, working: false });
-        setError(`Failed to connect to Firestore: ${err.message}`);
+        setError(`Failed to connect to storage: ${err.message}`);
       }
     };
-    checkStorage();
-  }, [testStorage]);
+    
+    if (currentUser) {
+      checkStorage();
+    }
+  }, [testStorageConnection, currentUser]);
 
-  const loadCharacterData = useCallback(async (pageNum, forceRefresh = false) => {
+  const loadCharacterData = useCallback(async () => {
+    if (!currentUser) return;
+    
     setIsLoading(true);
     setError(null);
     try {
-      const t = trace(perf, 'load_characters');
-      t.start();
-      
-      // If we're forcing a refresh or this is the first page, mark that we're doing a full load
-      const isFullLoad = forceRefresh || pageNum === 1;
-      if (isFullLoad) {
-        console.log("Performing full character data refresh");
-      }
-      
-      // Get all characters or just the next page
-      const allCharacters = await getAllCharacters(isFullLoad);
-      
-      // Filter out draft characters or keep only the most recent version of each character
-      const filteredCharacters = allCharacters.reduce((acc, char) => {
-        // If it's not a draft, always keep it
-        if (!char.isDraft) {
-          acc.push(char);
-          return acc;
-        }
-        
-        // For drafts, check if we already have a non-draft version with the same name
-        const existingChar = acc.find(c => c.name === char.name && !c.isDraft);
-        if (!existingChar) {
-          acc.push(char);
-        }
-        return acc;
-      }, []);
-      
-      // Calculate pagination
-      const startIndex = (pageNum - 1) * pageSize;
-      const endIndex = startIndex + pageSize;
-      const newCharacters = filteredCharacters.slice(startIndex, endIndex);
-      
-      // Update state based on whether this is the first page or a subsequent page
-      if (pageNum === 1) {
-        console.log(`Loading first page of characters (${newCharacters.length})`);
-        setCharacters(newCharacters);
-        setFilteredCharacters(newCharacters);
-      } else {
-        console.log(`Loading additional characters page ${pageNum} (${newCharacters.length})`);
-        setCharacters(prev => {
-          const combined = [...prev, ...newCharacters];
-          const uniqueCharacters = Array.from(
-            new Map(combined.map(char => [char.id, char])).values()
-          );
-          return uniqueCharacters;
-        });
-        setFilteredCharacters(prev => {
-          const combined = [...prev, ...newCharacters];
-          const uniqueCharacters = Array.from(
-            new Map(combined.map(char => [char.id, char])).values()
-          );
-          return uniqueCharacters;
-        });
-      }
-  
-      // Update "hasMore" flag based on whether there are more characters to load
-      const hasMoreCharacters = endIndex < filteredCharacters.length;
-      console.log(`Has more characters: ${hasMoreCharacters}`);
-      setHasMore(hasMoreCharacters);
-      
-      t.stop();
-      return newCharacters.length > 0;
+      console.log("Loading characters for user:", currentUser.uid);
+      const allCharacters = await getAllCharacters();
+      console.log("Loaded characters:", allCharacters);
+      setCharacters(allCharacters || []);
+      setFilteredCharacters(allCharacters || []);
     } catch (error) {
       console.error("Error loading characters:", error);
       setError("Failed to load characters. Please try again.");
-      return false;
     } finally {
       setIsLoading(false);
     }
-  }, [getAllCharacters, pageSize]);
+  }, [getAllCharacters, currentUser]);
 
   useEffect(() => {
-    if (currentUser) {
-      loadCharacterData(page);
-    }
-  }, [loadCharacterData, page, currentUser]);
+    loadCharacterData();
+  }, [loadCharacterData]);
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -166,81 +75,44 @@ function CharactersPage() {
     }
   }, [searchQuery, characters]);
 
-  const autoSave = debounce(async (characterData) => {
-    if (!currentUser || !characterData.name) return;
-  
-    try {
-      const characterToSave = {
-        ...characterData,
-        userId: currentUser.uid,
-        isDraft: true,
-        created: draftCharacter ? draftCharacter.created : new Date().toISOString(),
-        updated: new Date().toISOString(),
-      };
-  
-      if (!draftCharacter) {
-        characterToSave.id = `char_${Date.now()}`;
-        await saveCharacter(characterToSave, currentUser.uid);
-        setDraftCharacter(characterToSave);
-      } else {
-        const updatedCharacter = { ...draftCharacter, ...characterToSave };
-        await saveCharacter(updatedCharacter, currentUser.uid);
-        setDraftCharacter(updatedCharacter);
-      }
-    } catch (error) {
-      console.error('Error auto-saving character:', error);
-      if (error.message.includes('User not authenticated')) {
-        setError('Session expired. Please log in again.');
-        navigate('/login');
-      } else {
-        setError('Failed to auto-save character.');
-      }
-    }
-  }, 1000);
-
-  const handleFormChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => {
-      const updated = { ...prev, [name]: value };
-      setHasUnsavedChanges(true);
-      autoSave(updated);
-      return updated;
-    });
-  };
-
-  // src/pages/CharactersPage.js
-  // In CharactersPage.js, modify the handleSaveCharacter function:
-
   const handleSaveCharacter = async (newCharacter) => {
     try {
       setIsLoading(true);
       setSaveError(null);
       
-      // Direct save without draft logic
-      const result = await saveOneCharacter({
-        ...newCharacter,
-        id: editingCharacter?.id || `char_${Date.now()}`,
-        isDraft: false
-      });
+      // Check if character already exists with similar data to prevent duplicates
+      if (!editingCharacter && characters.some(c => c.name === newCharacter.name && !c.isDraft)) {
+        setSaveError(`A character named "${newCharacter.name}" already exists. Please use a different name.`);
+        setIsLoading(false);
+        return;
+      }
       
-      if (result) {
-        // Refresh the character list
-        const freshCharacters = await getAllCharacters(true);
-        setCharacters(freshCharacters);
-        
-        // Reset form
-        setEditingCharacter(null);
-        setFormData({
-          name: '',
-          traits: '',
-          personality: '',
-          background: '',
-          imageUrl: '',
+      console.log("Saving character:", newCharacter);
+      const savedCharacter = await saveOneCharacter(newCharacter);
+      console.log("Character saved successfully:", savedCharacter);
+      
+      // Update UI state
+      if (editingCharacter) {
+        setCharacters(prevChars =>
+          prevChars.map(char => (char.id === editingCharacter.id ? savedCharacter : char))
+        );
+      } else {
+        setCharacters(prevChars => {
+          // Ensure we're not adding a duplicate
+          const withoutDrafts = prevChars.filter(c => !(c.isDraft && c.name === savedCharacter.name));
+          return [...withoutDrafts, savedCharacter];
         });
       }
+      
+      // Reset form state
+      setEditingCharacter(null);
+      setSaveError(null);
+      
+      // Refresh data from server to ensure we have the latest
+      await loadCharacterData();
     } catch (error) {
       console.error("Error saving character:", error);
-      setSaveError(error.message);
+      setSaveError(`Failed to save character: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -248,67 +120,44 @@ function CharactersPage() {
   
   const startEditing = (character) => {
     setEditingCharacter(character);
-    setFormData({
-      name: character.name || '',
-      traits: character.traits || '',
-      personality: character.personality || '',
-      background: character.background || '',
-      imageUrl: character.imageUrl || ''
-    });
-    setDraftCharacter(null);
-    setHasUnsavedChanges(false);
   };
 
   const cancelEditing = () => {
     setEditingCharacter(null);
-    setDraftCharacter(null);
-    setHasUnsavedChanges(false);
-    setFormData({
-      name: '',
-      traits: '',
-      personality: '',
-      background: '',
-      imageUrl: ''
-    });
   };
 
-  // src/pages/CharactersPage.js
-const handleDeleteCharacter = async (characterId) => {
-  if (window.confirm('Are you sure you want to delete this character?')) {
-    try {
-      setIsLoading(true);
-      setError(null);
-      await deleteCharacter(characterId, currentUser.uid); // Pass userId
-      setCharacters(prevChars => prevChars.filter(char => char.id !== characterId));
-    } catch (error) {
-      console.error("Error deleting character:", error);
-      setError(`Failed to delete character: ${error.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-};
-
-  const loadMoreCharacters = () => {
-    setPage(prev => prev + 1);
-  };
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+  const handleDeleteCharacter = async (characterId) => {
+    if (window.confirm('Are you sure you want to delete this character?')) {
+      try {
+        setIsLoading(true);
+        setError(null);
+        await deleteOneCharacter(characterId);
+        setCharacters(prevChars => prevChars.filter(char => char.id !== characterId));
+      } catch (error) {
+        console.error("Error deleting character:", error);
+        setError(`Failed to delete character: ${error.message}`);
+      } finally {
+        setIsLoading(false);
       }
-    };
+    }
+  };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
+  if (!currentUser) {
+    return (
+      <div className="characters-page">
+        <h1>Characters</h1>
+        <div className="error-message">
+          <p>Please log in to access your characters.</p>
+          <Link to="/login">Go to Login</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="characters-page">
       <h1>Characters</h1>
-      {storageStatus.tested && !storageStatus.working && error && (
+      {error && (
         <div className="error-message" style={{ backgroundColor: 'red', color: 'white', padding: '10px' }}>
           {error}
         </div>
@@ -323,10 +172,9 @@ const handleDeleteCharacter = async (characterId) => {
           <h2>{editingCharacter ? 'Edit Character' : 'Create New Character'}</h2>
           <CharacterForm
             onSave={handleSaveCharacter}
-            initialCharacter={editingCharacter || formData}
+            initialCharacter={editingCharacter}
             onCancel={cancelEditing}
             isEditing={!!editingCharacter}
-            onChange={handleFormChange}
             isSubmitting={isLoading}
             currentUser={currentUser} 
           />
@@ -342,7 +190,7 @@ const handleDeleteCharacter = async (characterId) => {
               className="search-input"
             />
           </div>
-          {isLoading && page === 1 ? (
+          {isLoading ? (
             <div>Loading characters...</div>
           ) : filteredCharacters.length === 0 ? (
             searchQuery ? (
@@ -351,80 +199,56 @@ const handleDeleteCharacter = async (characterId) => {
               <p className="no-characters">No characters created yet.</p>
             )
           ) : (
-            <>
-              <ul className="character-cards">
-                {filteredCharacters.map(char => (
-                  <li key={char.id} className="character-card">
-                    <div className="card-header">
-                      {char.imageUrl ? (
-                        <div className="character-image">
-                          <img src={char.imageUrl} alt={char.name} />
-                        </div>
-                      ) : (
-                        <div className="character-icon">
-                          <span className="icon-text">{char.name ? char.name[0].toUpperCase() : 'C'}</span>
-                        </div>
-                      )}
-                      <h3>{char.name || 'Unnamed Character'}</h3>
-                    </div>
-                    <div className="card-content">
-                      {char.personality && (
-                        <p className="personality">
-                          <strong>Personality:</strong> {char.personality}
-                        </p>
-                      )}
-                      {char.background && (
-                        <p className="background">
-                          <strong>Background:</strong>{' '}
-                          {char.background.length > 100
-                            ? `${char.background.substring(0, 100)}...`
-                            : char.background}
-                        </p>
-                      )}
-                    </div>
-                    <div className="card-actions">
-                      <Link to={`/chat?characterId=${char.id}`}>
-                        <button className="chat-button">Chat</button>
-                      </Link>
-                      <button
-                        className="edit-button"
-                        onClick={() => startEditing(char)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="memories-button"
-                        onClick={() => alert('Memories feature coming soon!')}
-                      >
-                        Memories
-                      </button>
-                      <button
-                        className="delete-button"
-                        onClick={() => handleDeleteCharacter(char.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              {hasMore && (
-  <button
-    onClick={loadMoreCharacters}
-    disabled={isLoading}
-    className="load-more-button"
-  >
-    {isLoading ? (
-      <>
-        <span className="loading-spinner"></span>
-        Loading...
-      </>
-    ) : (
-      'Load More Characters'
-    )}
-  </button>
-)}
-            </>
+            <ul className="character-cards">
+              {filteredCharacters.map(char => (
+                <li key={char.id} className="character-card">
+                  <div className="card-header">
+                    {char.imageUrl ? (
+                      <div className="character-image">
+                        <img src={char.imageUrl} alt={char.name} />
+                      </div>
+                    ) : (
+                      <div className="character-icon">
+                        <span className="icon-text">{char.name ? char.name[0].toUpperCase() : 'C'}</span>
+                      </div>
+                    )}
+                    <h3>{char.name || 'Unnamed Character'}</h3>
+                  </div>
+                  <div className="card-content">
+                    {char.personality && (
+                      <p className="personality">
+                        <strong>Personality:</strong> {char.personality}
+                      </p>
+                    )}
+                    {char.background && (
+                      <p className="background">
+                        <strong>Background:</strong>{' '}
+                        {char.background.length > 100
+                          ? `${char.background.substring(0, 100)}...`
+                          : char.background}
+                      </p>
+                    )}
+                  </div>
+                  <div className="card-actions">
+                    <Link to={`/chat?characterId=${char.id}`}>
+                      <button className="chat-button">Chat</button>
+                    </Link>
+                    <button
+                      className="edit-button"
+                      onClick={() => startEditing(char)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="delete-button"
+                      onClick={() => handleDeleteCharacter(char.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

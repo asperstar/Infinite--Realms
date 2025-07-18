@@ -1,8 +1,10 @@
+
 // src/firebase.js - Replace your current firebase.js with this
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getPerformance } from 'firebase/performance';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -21,6 +23,15 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+let perf = null;
+try {
+  const { getPerformance } = require('firebase/performance');
+  perf = getPerformance(app);
+} catch (error) {
+  console.warn('Firebase Performance not available:', error);
+}
+export { perf };
 
 // Export the app itself
 export default app;

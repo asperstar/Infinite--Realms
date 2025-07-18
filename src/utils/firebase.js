@@ -1,8 +1,33 @@
-// src/utils/firebase.js
+// src/firebase.js - Replace your current firebase.js with this
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Add Storage imports
+import { getStorage } from 'firebase/storage';
+import { getPerformance } from 'firebase/performance';
+
+// Re-export all Firestore functions that your app needs
+export {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  writeBatch,
+  addDoc
+} from 'firebase/firestore';
+
+// Re-export all Storage functions that your app needs  
+export {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
+} from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -14,15 +39,22 @@ const firebaseConfig = {
   measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
-let app;
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize Firebase services
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+
+let perf = null;
 try {
-  app = initializeApp(firebaseConfig);
+  const { getPerformance } = require('firebase/performance');
+  perf = getPerformance(app);
 } catch (error) {
-  console.error('Firebase initialization error:', error);
+  console.warn('Firebase Performance not available:', error);
 }
+export { perf };
 
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app); // Initialize Storage
-
-export { app, auth, db, storage, ref, uploadBytes, getDownloadURL }; // Export Storage dependencies
+// Export the app itself
+export default app;

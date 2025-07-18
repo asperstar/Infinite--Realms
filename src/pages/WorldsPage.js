@@ -1,129 +1,39 @@
-// src/pages/WorldsPage.js
-import React, { useState, useEffect, useCallback } from 'react';
+// src/pages/WorldsPage.js - REPLACE your current WorldsPage.js with this
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import WorldForm from '../components/worlds/WorldForm';
-import { loadWorlds, saveWorlds, deleteWorld } from '../utils/storageExports';
 import { useStorage } from '../contexts/StorageContext';
-import debounce from 'lodash/debounce';
-import {  ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../firebase';
+
 function WorldsPage() {
   const [worlds, setWorlds] = useState([]);
   const [editingWorld, setEditingWorld] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredWorlds, setFilteredWorlds] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const { currentUser } = useStorage();
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [draftWorld, setDraftWorld] = useState(null);
-
-  const cleanForFirestore = (obj) => {
-    if (obj === null || typeof obj !== 'object') {
-      return obj;
-    }
-
-    if (Array.isArray(obj)) {
-      return obj.map(item => cleanForFirestore(item));
-    }
-
-    const cleaned = {};
-    for (const key of Object.keys(obj)) {
-      const value = obj[key];
-      if (value === undefined) {
-        continue;
-      }
-      if (typeof value === 'object') {
-        cleaned[key] = cleanForFirestore(value);
-      } else {
-        cleaned[key] = value;
-      }
-    }
-    return cleaned;
-  };
-
-  const autoSave = useCallback(debounce(async (worldData) => {
-    if (!currentUser || !worldData.name) return;
-    
-    try {
-      const worldToSave = cleanForFirestore({
-        ...worldData,
-        userId: currentUser.uid,
-        isDraft: true,
-        updated: new Date().toISOString()
-      });
-      
-      if (!draftWorld) {
-        worldToSave.id = Date.now();
-        await saveWorlds([worldToSave]);
-        setDraftWorld(worldToSave);
-      } else {
-        const updatedWorld = cleanForFirestore({ ...draftWorld, ...worldToSave, userId: currentUser.uid });
-        await saveWorlds([updatedWorld]);
-        setDraftWorld(updatedWorld);
-      }
-    } catch (error) {
-      console.error('Error auto-saving world:', { message: error.message, code: error.code, stack: error.stack });
-      setError(`Failed to auto-save world: ${error.message}`);
-    }
-  }, 1000), [currentUser, draftWorld]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-      }
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
+  
+  const { currentUser, getWorlds, saveOneWorld, deleteOneWorld } = useStorage();
 
   // Load worlds on component mount
   useEffect(() => {
     const fetchWorlds = async () => {
+      if (!currentUser) return;
+      
       setIsLoading(true);
       try {
-        const savedWorlds = await loadWorlds();
-        setWorlds(savedWorlds);
-        setFilteredWorlds(savedWorlds);
+        const savedWorlds = await getWorlds();
+        setWorlds(savedWorlds || []);
+        setFilteredWorlds(savedWorlds || []);
       } catch (error) {
-        console.error("Error loading worlds:", { message: error.message, code: error.code, stack: error.stack });
+        console.error("Error loading worlds:", error);
         setError("Failed to load worlds. Please try again.");
       } finally {
         setIsLoading(false);
       }
     };
     
-    if (currentUser) {
-      fetchWorlds();
-    }
-  }, [currentUser]);
-  
-  // Save worlds whenever they change
-  useEffect(() => {
-    const saveData = async () => {
-      if (worlds.length > 0 && currentUser) {
-        setSaving(true);
-        try {
-          const worldsToSave = worlds.map(world => cleanForFirestore({
-            ...world,
-            userId: currentUser.uid
-          }));
-          await saveWorlds(worldsToSave);
-        } catch (error) {
-          console.error("Error saving worlds:", { message: error.message, code: error.code, stack: error.stack });
-          setError(`Failed to save changes: ${error.message}`);
-        } finally {
-          setSaving(false);
-        }
-      }
-    };
-    
-    saveData();
-  }, [worlds, currentUser]);
+    fetchWorlds();
+  }, [currentUser, getWorlds]);
   
   // Filter worlds based on search query
   useEffect(() => {
@@ -143,50 +53,17 @@ function WorldsPage() {
     try {
       setIsLoading(true);
       
-      // Process image upload if there's a file
-      let imageUrl = newWorld.imageUrl || '';
-      if (newWorld.imageFile) {
-        try {
-          const userId = currentUser.uid;
-          const imageId = Date.now().toString();
-          const storageRef = ref(storage, `users/${userId}/worlds/${imageId}`);
-          await uploadBytes(storageRef, newWorld.imageFile);
-          imageUrl = await getDownloadURL(storageRef);
-        } catch (imageError) {
-          console.error("Error uploading world image:", imageError);
-          // Continue saving without the image
-        }
-      }
+      const savedWorld = await saveOneWorld(newWorld);
       
       if (editingWorld) {
-        const updatedWorlds = worlds.map(world => 
-          world.id === editingWorld.id 
-            ? { 
-                ...newWorld, 
-                id: world.id, 
-                imageUrl, // Use the uploaded URL
-                imageFile: null, // Don't store the file in Firestore
-                created: world.created, 
-                updated: new Date().toISOString(),
-                userId: currentUser.uid
-              }
-            : world
+        setWorlds(prevWorlds => 
+          prevWorlds.map(world => 
+            world.id === editingWorld.id ? savedWorld : world
+          )
         );
-        setWorlds(updatedWorlds);
         setEditingWorld(null);
       } else {
-        const newWorldWithId = { 
-          ...newWorld, 
-          imageUrl, // Use the uploaded URL
-          imageFile: null, // Don't store the file in Firestore
-          id: Date.now(),
-          created: new Date().toISOString(),
-          environmentIds: newWorld.environmentIds || [],
-          characterIds: newWorld.characterIds || [],
-          campaignIds: [],
-          userId: currentUser.uid
-        };
-        setWorlds(prevWorlds => [...prevWorlds, newWorldWithId]);
+        setWorlds(prevWorlds => [...prevWorlds, savedWorld]);
       }
     } catch (error) {
       console.error("Error saving world:", error);
@@ -211,10 +88,10 @@ function WorldsPage() {
         setEditingWorld(null);
       }
       
-      await deleteWorld(id);
+      await deleteOneWorld(id);
       setWorlds(prevWorlds => prevWorlds.filter(world => world.id !== id));
     } catch (error) {
-      console.error("Error deleting world:", { message: error.message, code: error.code, stack: error.stack });
+      console.error("Error deleting world:", error);
       setError("Failed to delete world. Please try again.");
     }
   };
@@ -227,18 +104,38 @@ function WorldsPage() {
     return { characterCount, environmentCount, campaignCount };
   };
 
+  if (!currentUser) {
+    return (
+      <div className="worlds-page">
+        <h1>Worlds</h1>
+        <div className="error-message">
+          <p>Please log in to access your worlds.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
-    return <div className="loading">Loading worlds...</div>;
+    return (
+      <div className="worlds-page">
+        <h1>Worlds</h1>
+        <div className="loading">Loading worlds...</div>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="error-message">{error}</div>;
+    return (
+      <div className="worlds-page">
+        <h1>Worlds</h1>
+        <div className="error-message">{error}</div>
+      </div>
+    );
   }
 
   return (
     <div className="worlds-page">
       <h1>Worlds</h1>
-      {saving && <div className="saving-message">Saving...</div>}
       
       <div className="page-content">
         <div className="form-section">

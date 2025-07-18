@@ -5,7 +5,7 @@ import {
   saveWorlds, 
   saveMapData, 
   saveTimelineData 
-} from './firebaseStorage';
+} from '../firebaseStorage';
 
 export const migrateLocalStorageToFirebase = async () => {
   try {

@@ -1,26 +1,65 @@
-// src/App.js - REPLACE your current App.js with this
-import React, { useState } from 'react';
-import { HashRouter, Routes, Route, Link } from 'react-router-dom';
-import { AppProvider, useApp } from './contexts/AppContext';
+import React, { useState, useEffect } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './utils/firebase';
+import { HashRouter, Routes, Route } from 'react-router-dom';
+import { StorageProvider } from './contexts/StorageContext';
+import { Link } from 'react-router-dom';
 import './App.css';
 
-// Import pages (keeping the ones that work)
+// Import components and pages
+import OllamaDiagnosticPage from './pages/OllamaDiagnosticPage';
+import './styles/OllamaDiagnostic.css';
+
 import Dashboard from './pages/Dashboard';
 import CharactersPage from './pages/CharactersPage';
 import EnvironmentsPage from './pages/EnvironmentsPage';
+import MapPage from './pages/MapPage';
+import TimelinePage from './pages/TimelinePage';
+import ChatPage from './pages/UpdatedChatPage';
+import ImportExportPage from './pages/ImportExportPage';
+import ErrorSuppressor from './components/ErrorSuppressor';
+import CharacterMemoriesPage from './pages/CharacterMemoriesPage';
 import WorldsPage from './pages/WorldsPage';
-import AuthPage from './pages/AuthPage';
 import CampaignsPage from './pages/CampaignsPage';
 import CampaignSessionPage from './pages/CampaignSessionPage';
-import ChatPage from './pages/UpdatedChatPage';
-
-// Import components
-import ErrorBoundary from './components/ErrorBoundary';
+import CampaignSettingsPage from './pages/CampaignSettingsPage';
+import CampaignsIndexPage from './pages/CampaignsIndexPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import AuthPage from './pages/AuthPage';
+import ProfilePage from './pages/ProfilePage';
+import DocumentationPage from './pages/DocumentationPage';
+import DebugPage from './pages/DebugPage';
+import DecorativeElements from './components/DecorativeElements';
+import AzgaarMapIframe from './components/maps/AzgaarMapIframe';
+import LoginPage from './pages/LoginPage';
+import WorldSelectionPage from './pages/WorldSelectionPage';
+import './styles/UpdatedChatPage.css';
+import ForumsPage from './pages/ForumsPage';
+import ForumPostDetailPage from './pages/ForumPostDetailPage';
 
 function AppContent() {
-  const { currentUser, loading, error, logout } = useApp();
+  const [user, setUser] = useState(null);
+  const [loading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  useEffect(() => {
+    if (!auth) {
+      console.error('Firebase auth is not initialized');
+      setIsLoading(false);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   if (loading) {
     return (
@@ -34,20 +73,15 @@ function AppContent() {
   return (
     <HashRouter>
       <div className="app">
-        {/* Show error if there is one */}
-        {error && (
-          <div className="global-error">
-            <p>{error}</p>
-            <button onClick={() => window.location.reload()}>Refresh</button>
-          </div>
-        )}
-
-        {currentUser ? (
+        {user ? (
           <>
+            <DecorativeElements />
+
             {/* Toggle Button */}
             <button
               className="sidebar-toggle-button"
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              onClick={toggleSidebar}
+              aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
             >
               {isSidebarOpen ? '✖' : '☰'}
             </button>
@@ -59,26 +93,47 @@ function AppContent() {
                 <li><Link to="/" onClick={() => setIsSidebarOpen(false)}>Dashboard</Link></li>
                 <li><Link to="/characters" onClick={() => setIsSidebarOpen(false)}>Characters</Link></li>
                 <li><Link to="/environments" onClick={() => setIsSidebarOpen(false)}>Environments</Link></li>
-                <li><Link to="/worlds" onClick={() => setIsSidebarOpen(false)}>Worlds</Link></li>
-                <li><Link to="/campaigns" onClick={() => setIsSidebarOpen(false)}>Campaigns</Link></li>
+                <li><Link to="/map" onClick={() => setIsSidebarOpen(false)}>Map</Link></li>
+                <li><Link to="/timeline" onClick={() => setIsSidebarOpen(false)}>Timeline</Link></li>
                 <li><Link to="/chat" onClick={() => setIsSidebarOpen(false)}>Character Chat</Link></li>
-                <li><button onClick={logout} className="logout-button">Logout</button></li>
+                <li><Link to="/worlds" onClick={() => setIsSidebarOpen(false)}>Worlds</Link></li>
+                <li><Link to="/campaigns" onClick={() => setIsSidebarOpen(false)}>Campaign</Link></li>
+                <li><Link to="/import-export" onClick={() => setIsSidebarOpen(false)}>Import/Export</Link></li>
+                <li><Link to="/profile" onClick={() => setIsSidebarOpen(false)}>Profile</Link></li>
+                <li><Link to="/documentation" onClick={() => setIsSidebarOpen(false)}>Documentation</Link></li>
+                <Link to="/diagnostics/ollama" className="feature-button">Run Diagnostics</Link>
+                <li><Link to="/forums" onClick={() => setIsSidebarOpen(false)}>Forums</Link></li>
               </ul>
             </nav>
 
             {/* Main Content */}
             <main className={`main-content ${isSidebarOpen ? 'main-content-with-sidebar' : 'main-content-full'}`}>
-              <ErrorBoundary>
+              <ErrorSuppressor>
                 <Routes>
+                  <Route path="/diagnostics/ollama" element={<ProtectedRoute><OllamaDiagnosticPage /></ProtectedRoute>} />
                   <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/login" element={<LoginPage />} />
                   <Route path="/characters" element={<ProtectedRoute><CharactersPage /></ProtectedRoute>} />
+                  <Route path="/characters/:characterId/memories" element={<ProtectedRoute><CharacterMemoriesPage /></ProtectedRoute>} />
                   <Route path="/environments" element={<ProtectedRoute><EnvironmentsPage /></ProtectedRoute>} />
+                  <Route path="/map" element={<ProtectedRoute><WorldSelectionPage /></ProtectedRoute>} />
+                  <Route path="/map/:worldId" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
+                  <Route path="/timeline" element={<ProtectedRoute><TimelinePage /></ProtectedRoute>} />
+                  <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                  <Route path="/import-export" element={<ProtectedRoute><ImportExportPage /></ProtectedRoute>} />
                   <Route path="/worlds" element={<ProtectedRoute><WorldsPage /></ProtectedRoute>} />
                   <Route path="/worlds/:worldId/campaigns" element={<ProtectedRoute><CampaignsPage /></ProtectedRoute>} />
                   <Route path="/campaigns/:campaignId/session" element={<ProtectedRoute><CampaignSessionPage /></ProtectedRoute>} />
-                  <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                  <Route path="/campaigns/:campaignId/settings" element={<ProtectedRoute><CampaignSettingsPage /></ProtectedRoute>} />
+                  <Route path="/campaigns" element={<ProtectedRoute><CampaignsIndexPage /></ProtectedRoute>} />
+                  <Route path="/worlds/:worldId/map/fantasy" element={<ProtectedRoute><AzgaarMapIframe /></ProtectedRoute>} />
+                  <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+                  <Route path="/documentation" element={<ProtectedRoute><DocumentationPage /></ProtectedRoute>} />
+                  <Route path="/debug" element={<ProtectedRoute><DebugPage /></ProtectedRoute>} />
+                  <Route path="/forums" element={<ProtectedRoute><ForumsPage /></ProtectedRoute>} />
+                  <Route path="/forums/:postId" element={<ProtectedRoute><ForumPostDetailPage /></ProtectedRoute>} />
                 </Routes>
-              </ErrorBoundary>
+              </ErrorSuppressor>
             </main>
           </>
         ) : (
@@ -91,10 +146,21 @@ function AppContent() {
 
 function App() {
   return (
-    <AppProvider>
+    <StorageProvider>
       <AppContent />
-    </AppProvider>
+    </StorageProvider>
   );
+}
+
+// Suppress ResizeObserver errors
+if (typeof window !== 'undefined') {
+  const originalError = console.error;
+  console.error = (...args) => {
+    if (args[0]?.includes?.('ResizeObserver loop')) {
+      return;
+    }
+    originalError(...args);
+  };
 }
 
 export default App;

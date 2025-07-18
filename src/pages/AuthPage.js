@@ -1,89 +1,49 @@
-// src/pages/AuthPage.js
+// src/pages/AuthPage.js - REPLACE your current AuthPage.js with this
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  getAuth, 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword,
-  onAuthStateChanged
-} from 'firebase/auth';
-import { testStorage } from '../utils/storageExports';
+import { useStorage } from '../contexts/StorageContext';
 
 function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const auth = getAuth();
+  
+  const { login, signup, error, currentUser, testStorageConnection } = useStorage();
   
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        navigate('/worlds');
-      }
-    });
-    
-    return () => unsubscribe();
-  }, [auth, navigate]);
+    if (currentUser) {
+      navigate('/');
+    }
+  }, [currentUser, navigate]);
   
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
     
     try {
-      let userCredential;
+      let success;
       
       if (isLogin) {
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
+        success = await login(email, password);
       } else {
-        userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        success = await signup(email, password);
       }
       
-      const testResult = await testStorage();
-      console.log('Firestore connection test:', testResult);
-      
-      if (!testResult.success) {
-        console.warn('Firebase connection issue:', testResult);
-        setError(`Authentication successful but there was an issue connecting to the database: ${testResult.error}`);
-        setLoading(false);
-        return;
+      if (success) {
+        // Test storage connection
+        const testResult = await testStorageConnection();
+        console.log('Storage connection test:', testResult);
+        
+        if (!testResult.success) {
+          console.warn('Storage connection issue:', testResult);
+        }
+        
+        navigate('/');
       }
-      
-      navigate('/worlds');
     } catch (error) {
       console.error("Auth error:", error);
-      let errorMessage = "Authentication failed";
-      
-      switch(error.code) {
-        case 'auth/invalid-email':
-          errorMessage = 'Invalid email address format.';
-          break;
-        case 'auth/user-disabled':
-          errorMessage = 'This account has been disabled.';
-          break;
-        case 'auth/user-not-found':
-          errorMessage = 'No account found with this email.';
-          break;
-        case 'auth/wrong-password':
-          errorMessage = 'Incorrect password.';
-          break;
-        case 'auth/email-already-in-use':
-          errorMessage = 'This email is already in use by another account.';
-          break;
-        case 'auth/weak-password':
-          errorMessage = 'Password is too weak. Please use at least 6 characters.';
-          break;
-        case 'auth/network-request-failed':
-          errorMessage = 'Network error. Please check your connection.';
-          break;
-        default:
-          errorMessage = error.message || "Authentication failed";
-      }
-      
-      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -96,19 +56,19 @@ function AuthPage() {
         
         {error && <div className="error-message">{error}</div>}
         
-        <form onSubmit={handleSubmit} action="/auth" method="POST">
+        <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="email">Email</label>
             <input 
               id="email"
               type="email" 
-              name="username" // Added name attribute
+              name="username"
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
               required 
               placeholder="Enter your email"
               disabled={loading}
-              autoComplete="username" // Added for password saving
+              autoComplete="username"
             />
           </div>
           
@@ -117,14 +77,14 @@ function AuthPage() {
             <input 
               id="password"
               type="password" 
-              name="password" // Added name attribute
+              name="password"
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
               required 
               minLength="6"
               placeholder="Enter your password"
               disabled={loading}
-              autoComplete={isLogin ? "current-password" : "new-password"} // Different for login vs signup
+              autoComplete={isLogin ? "current-password" : "new-password"}
             />
           </div>
           

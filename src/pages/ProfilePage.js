@@ -1,7 +1,7 @@
 // src/pages/ProfilePage.js
 import React, { useState, useEffect } from 'react';
 import { useStorage } from '../contexts/StorageContext';
-import { getUserProfile, updateUserProfile } from '../utils/firebaseStorage';
+import { getUserProfile, updateUserProfile } from '../utils/storageExports';
 import { migrateLocalStorageToFirebase } from '../utils/dataMigration';
 
 
